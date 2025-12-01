@@ -32,6 +32,17 @@
     </div>
 </div>
 
+<!-- Chart -->
+<div class="card" id="chart-card" style="display: none;">
+    <div class="card-header">Hunger Delay Throughout the Day</div>
+    <div class="chart-container">
+        <canvas id="hunger-chart"></canvas>
+    </div>
+    <div style="font-size: 0.875rem; color: var(--text-muted); margin-top: 1rem;">
+        Each dot represents an individual entry logged at that time with its specific hunger delay duration
+    </div>
+</div>
+
 <!-- Entries List -->
 <div class="card">
     <div class="card-header">Entries for <span id="entries-date">Today</span></div>
@@ -46,6 +57,7 @@
 let currentDate = new Date();
 let allDates = [];
 let isBaselineMode = false;
+let hungerChart = null;
 
 // Load all available dates
 async function loadAvailableDates() {
@@ -67,8 +79,13 @@ async function loadEntries() {
 
         if (entries.length === 0) {
             entriesList.innerHTML = '<div class="empty-state"><span class="empty-state-icon">📝</span><div class="empty-state-text">No entries for this day</div></div>';
+            document.getElementById('chart-card').style.display = 'none';
             return;
         }
+
+        // Show chart if we have entries
+        document.getElementById('chart-card').style.display = 'block';
+        console.log(`Found ${entries.length} entries, displaying chart`);
 
         entriesList.innerHTML = entries.map(entry => `
             <div class="entry-item">
@@ -80,7 +97,7 @@ async function loadEntries() {
                     <button class="entry-delete" onclick="deleteEntry(${entry.id})" title="Delete">🗑️</button>
                 </div>
                 <div class="entry-meta">
-                    Started: ${formatTime(entry.allulose_time)} → Hungry: ${formatTime(entry.hunger_time)}
+                    Logged at: ${formatTime(entry.hunger_time)} | Started: ${formatTime(entry.allulose_time)} → Hungry: ${formatTime(entry.hunger_time)}
                 </div>
                 ${entry.activity_level || entry.sleep_hours || entry.stress_level ? `
                     <div class="entry-details">
@@ -95,9 +112,187 @@ async function loadEntries() {
                 ${entry.notes ? `<div class="entry-details">Notes: ${entry.notes}</div>` : ''}
             </div>
         `).join('');
+
+        // Update chart
+        updateChart(entries);
     } catch (error) {
         console.error('Error loading entries:', error);
     }
+}
+
+// Update chart
+function updateChart(entries) {
+    console.log('updateChart called with', entries.length, 'entries');
+    const canvas = document.getElementById('hunger-chart');
+    const ctx = canvas.getContext('2d');
+
+    // Destroy existing chart
+    if (hungerChart) {
+        hungerChart.destroy();
+    }
+
+    if (entries.length === 0) {
+        hungerChart = null;
+        return;
+    }
+
+    // Sort entries by hunger_time (when they were logged)
+    entries.sort((a, b) => new Date(a.hunger_time) - new Date(b.hunger_time));
+    console.log('Sorted entries:', entries.map(e => ({time: e.hunger_time, duration: e.duration_minutes})));
+
+    // Separate baseline and allulose entries
+    const baselineData = [];
+    const variantAData = [];
+    const variantBData = [];
+
+    entries.forEach(entry => {
+        const dataPoint = {
+            x: new Date(entry.hunger_time),
+            y: entry.duration_minutes
+        };
+
+        if (entry.is_baseline) {
+            baselineData.push(dataPoint);
+        } else if (entry.variant === 'A') {
+            variantAData.push(dataPoint);
+        } else {
+            variantBData.push(dataPoint);
+        }
+    });
+
+    const datasets = [];
+    console.log('Data separated - Baseline:', baselineData.length, 'Variant A:', variantAData.length, 'Variant B:', variantBData.length);
+
+    if (baselineData.length > 0) {
+        datasets.push({
+            label: 'Baseline (No Allulose)',
+            data: baselineData,
+            backgroundColor: '#3b82f6',
+            borderColor: '#3b82f6',
+            borderWidth: 3,
+            pointRadius: 8,
+            pointHoverRadius: 10,
+            pointStyle: 'circle',
+            tension: 0.3,
+            fill: false
+        });
+    }
+
+    if (variantAData.length > 0) {
+        datasets.push({
+            label: 'Variant A (Meal + Allulose)',
+            data: variantAData,
+            backgroundColor: '#4ade80',
+            borderColor: '#4ade80',
+            borderWidth: 3,
+            pointRadius: 8,
+            pointHoverRadius: 10,
+            pointStyle: 'circle',
+            tension: 0.3,
+            fill: false
+        });
+    }
+
+    if (variantBData.length > 0) {
+        datasets.push({
+            label: 'Variant B (Allulose Only)',
+            data: variantBData,
+            backgroundColor: '#f59e0b',
+            borderColor: '#f59e0b',
+            borderWidth: 3,
+            pointRadius: 8,
+            pointHoverRadius: 10,
+            pointStyle: 'circle',
+            tension: 0.3,
+            fill: false
+        });
+    }
+
+    hungerChart = new Chart(ctx, {
+        type: 'line',
+        data: { datasets },
+        options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            plugins: {
+                legend: {
+                    display: true,
+                    position: 'bottom',
+                    labels: {
+                        color: '#f1f5f9',
+                        padding: 12,
+                        font: { size: 11 },
+                        usePointStyle: true,
+                        pointStyle: 'circle'
+                    }
+                },
+                tooltip: {
+                    mode: 'nearest',
+                    intersect: true,
+                    backgroundColor: '#1e293b',
+                    borderColor: '#4ade80',
+                    borderWidth: 1,
+                    titleColor: '#4ade80',
+                    bodyColor: '#f1f5f9',
+                    padding: 12,
+                    callbacks: {
+                        label: function(context) {
+                            const minutes = context.parsed.y;
+                            const hours = Math.floor(minutes / 60);
+                            const mins = minutes % 60;
+                            const timeStr = hours > 0 ? `${hours}h ${mins}m` : `${mins}m`;
+                            return `${context.dataset.label}: ${timeStr}`;
+                        }
+                    }
+                }
+            },
+            scales: {
+                x: {
+                    type: 'time',
+                    time: {
+                        unit: 'hour',
+                        displayFormats: {
+                            hour: 'ha'
+                        },
+                        tooltipFormat: 'h:mm a'
+                    },
+                    grid: {
+                        color: '#475569'
+                    },
+                    ticks: {
+                        color: '#cbd5e1'
+                    },
+                    title: {
+                        display: true,
+                        text: 'Time of Day (When Logged)',
+                        color: '#cbd5e1'
+                    }
+                },
+                y: {
+                    min: 0,
+                    ticks: {
+                        color: '#cbd5e1',
+                        callback: function(value) {
+                            const hours = Math.floor(value / 60);
+                            const mins = value % 60;
+                            if (hours === 0) return mins + 'm';
+                            if (mins === 0) return hours + 'h';
+                            return hours + 'h ' + mins + 'm';
+                        }
+                    },
+                    grid: {
+                        color: '#475569'
+                    },
+                    title: {
+                        display: true,
+                        text: 'Hunger Delay Duration',
+                        color: '#cbd5e1'
+                    }
+                }
+            }
+        }
+    });
+    console.log('Chart created successfully with', datasets.length, 'datasets');
 }
 
 // Update day display

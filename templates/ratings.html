@@ -35,11 +35,44 @@
     </div>
 </div>
 
-<!-- Chart -->
-<div class="card">
-    <div class="card-header">Daily Trends</div>
+<!-- Individual Charts -->
+<div class="card" id="energy-chart-card" style="display: none;">
+    <div class="card-header">⚡ Energy Throughout the Day</div>
     <div class="chart-container">
-        <canvas id="ratings-chart"></canvas>
+        <canvas id="energy-chart"></canvas>
+    </div>
+    <div style="font-size: 0.875rem; color: var(--text-muted); margin-top: 0.5rem;">
+        Each dot represents an energy rating logged at that time
+    </div>
+</div>
+
+<div class="card" id="clarity-chart-card" style="display: none;">
+    <div class="card-header">🧠 Clarity Throughout the Day</div>
+    <div class="chart-container">
+        <canvas id="clarity-chart"></canvas>
+    </div>
+    <div style="font-size: 0.875rem; color: var(--text-muted); margin-top: 0.5rem;">
+        Each dot represents a clarity rating logged at that time
+    </div>
+</div>
+
+<div class="card" id="mood-chart-card" style="display: none;">
+    <div class="card-header">😊 Mood Throughout the Day</div>
+    <div class="chart-container">
+        <canvas id="mood-chart"></canvas>
+    </div>
+    <div style="font-size: 0.875rem; color: var(--text-muted); margin-top: 0.5rem;">
+        Each dot represents a mood rating logged at that time
+    </div>
+</div>
+
+<div class="card" id="performance-chart-card" style="display: none;">
+    <div class="card-header">💪 Physical Throughout the Day</div>
+    <div class="chart-container">
+        <canvas id="performance-chart"></canvas>
+    </div>
+    <div style="font-size: 0.875rem; color: var(--text-muted); margin-top: 0.5rem;">
+        Each dot represents a physical performance rating logged at that time
     </div>
 </div>
 
@@ -55,7 +88,12 @@
 {% block scripts %}
 <script>
 let currentDate = new Date();
-let ratingsChart = null;
+let charts = {
+    energy: null,
+    clarity: null,
+    mood: null,
+    performance: null
+};
 
 // Metric info
 const metricInfo = {
@@ -107,70 +145,95 @@ async function loadRatings() {
     }
 }
 
-// Update chart
+// Update charts - create individual scatter plot for each metric
 function updateChart(ratings) {
-    const canvas = document.getElementById('ratings-chart');
-    const ctx = canvas.getContext('2d');
+    console.log('updateChart called with', ratings.length, 'ratings');
+
+    // Group ratings by metric type
+    const ratingsByMetric = {
+        energy: ratings.filter(r => r.metric_type === 'energy'),
+        clarity: ratings.filter(r => r.metric_type === 'clarity'),
+        mood: ratings.filter(r => r.metric_type === 'mood'),
+        performance: ratings.filter(r => r.metric_type === 'performance')
+    };
+
+    // Create/update individual chart for each metric
+    Object.keys(metricInfo).forEach(metricType => {
+        createMetricChart(metricType, ratingsByMetric[metricType]);
+    });
+}
+
+// Create individual chart for a specific metric
+function createMetricChart(metricType, ratings) {
+    const chartCard = document.getElementById(`${metricType}-chart-card`);
+    const canvas = document.getElementById(`${metricType}-chart`);
 
     // Destroy existing chart
-    if (ratingsChart) {
-        ratingsChart.destroy();
+    if (charts[metricType]) {
+        charts[metricType].destroy();
+        charts[metricType] = null;
     }
 
+    // Hide card if no data
     if (ratings.length === 0) {
-        ratingsChart = null;
+        chartCard.style.display = 'none';
         return;
     }
 
-    // Group ratings by metric type
-    const datasets = [];
+    // Show card
+    chartCard.style.display = 'block';
 
-    Object.keys(metricInfo).forEach(metricType => {
-        const metricRatings = ratings.filter(r => r.metric_type === metricType);
+    // Sort by timestamp
+    ratings.sort((a, b) => new Date(a.timestamp) - new Date(b.timestamp));
 
-        if (metricRatings.length > 0) {
-            // Sort by timestamp
-            metricRatings.sort((a, b) => new Date(a.timestamp) - new Date(b.timestamp));
+    // Prepare data points
+    const dataPoints = ratings.map(r => ({
+        x: new Date(r.timestamp),
+        y: r.value
+    }));
 
-            datasets.push({
-                label: metricInfo[metricType].name,
-                data: metricRatings.map(r => ({
-                    x: new Date(r.timestamp),
-                    y: r.value
-                })),
-                borderColor: metricInfo[metricType].color,
-                backgroundColor: metricInfo[metricType].color + '33',
-                tension: 0.4,
-                fill: false
-            });
-        }
-    });
+    console.log(`Creating ${metricType} chart with ${dataPoints.length} points`);
 
-    ratingsChart = new Chart(ctx, {
+    const ctx = canvas.getContext('2d');
+    const info = metricInfo[metricType];
+
+    charts[metricType] = new Chart(ctx, {
         type: 'line',
-        data: { datasets },
+        data: {
+            datasets: [{
+                label: info.name,
+                data: dataPoints,
+                backgroundColor: info.color,
+                borderColor: info.color,
+                borderWidth: 3,
+                pointRadius: 8,
+                pointHoverRadius: 10,
+                pointStyle: 'circle',
+                tension: 0.3,
+                fill: false
+            }]
+        },
         options: {
             responsive: true,
             maintainAspectRatio: false,
             plugins: {
                 legend: {
-                    display: true,
-                    position: 'bottom',
-                    labels: {
-                        color: '#f1f5f9',
-                        padding: 12,
-                        font: { size: 12 }
-                    }
+                    display: false
                 },
                 tooltip: {
-                    mode: 'index',
-                    intersect: false,
+                    mode: 'nearest',
+                    intersect: true,
                     backgroundColor: '#1e293b',
-                    borderColor: '#4ade80',
+                    borderColor: info.color,
                     borderWidth: 1,
-                    titleColor: '#4ade80',
+                    titleColor: info.color,
                     bodyColor: '#f1f5f9',
-                    padding: 12
+                    padding: 12,
+                    callbacks: {
+                        label: function(context) {
+                            return `${info.name}: ${context.parsed.y}/10`;
+                        }
+                    }
                 }
             },
             scales: {
@@ -180,12 +243,18 @@ function updateChart(ratings) {
                         unit: 'hour',
                         displayFormats: {
                             hour: 'ha'
-                        }
+                        },
+                        tooltipFormat: 'h:mm a'
                     },
                     grid: {
                         color: '#475569'
                     },
                     ticks: {
+                        color: '#cbd5e1'
+                    },
+                    title: {
+                        display: true,
+                        text: 'Time of Day',
                         color: '#cbd5e1'
                     }
                 },
@@ -198,6 +267,11 @@ function updateChart(ratings) {
                     },
                     grid: {
                         color: '#475569'
+                    },
+                    title: {
+                        display: true,
+                        text: 'Rating (1-10)',
+                        color: '#cbd5e1'
                     }
                 }
             }
