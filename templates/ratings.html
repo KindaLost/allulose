@@ -1,0 +1,315 @@
+{% extends "base.html" %}
+
+{% block title %}Subjective Ratings - Allulose Tracker{% endblock %}
+{% block header %}Subjective Ratings{% endblock %}
+{% block nav_ratings %}active{% endblock %}
+
+{% block content %}
+<!-- Day Selector -->
+<div class="day-selector">
+    <button class="day-nav-btn" onclick="previousDay()" id="prev-btn">← Prev</button>
+    <div class="current-day" id="current-day">Today</div>
+    <button class="day-nav-btn" onclick="nextDay()" id="next-btn">Next →</button>
+</div>
+
+<!-- Quick Rating Buttons -->
+<div class="card">
+    <div class="card-header">Quick Rate</div>
+    <div class="metric-buttons">
+        <button class="metric-btn" onclick="quickRate('energy')">
+            <span class="metric-btn-icon">⚡</span>
+            <span class="metric-btn-label">Energy</span>
+        </button>
+        <button class="metric-btn" onclick="quickRate('clarity')">
+            <span class="metric-btn-icon">🧠</span>
+            <span class="metric-btn-label">Clarity</span>
+        </button>
+        <button class="metric-btn" onclick="quickRate('mood')">
+            <span class="metric-btn-icon">😊</span>
+            <span class="metric-btn-label">Mood</span>
+        </button>
+        <button class="metric-btn" onclick="quickRate('performance')">
+            <span class="metric-btn-icon">💪</span>
+            <span class="metric-btn-label">Physical</span>
+        </button>
+    </div>
+</div>
+
+<!-- Chart -->
+<div class="card">
+    <div class="card-header">Daily Trends</div>
+    <div class="chart-container">
+        <canvas id="ratings-chart"></canvas>
+    </div>
+</div>
+
+<!-- Ratings List -->
+<div class="card">
+    <div class="card-header">Ratings for <span id="ratings-date">Today</span></div>
+    <div id="ratings-list">
+        <div class="loading">Loading ratings...</div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+let currentDate = new Date();
+let ratingsChart = null;
+
+// Metric info
+const metricInfo = {
+    energy: { name: 'Energy', icon: '⚡', color: '#f59e0b' },
+    clarity: { name: 'Clarity', icon: '🧠', color: '#3b82f6' },
+    mood: { name: 'Mood', icon: '😊', color: '#ec4899' },
+    performance: { name: 'Physical', icon: '💪', color: '#8b5cf6' }
+};
+
+// Load ratings for current date
+async function loadRatings() {
+    const dateStr = currentDate.toISOString().split('T')[0];
+
+    try {
+        const ratings = await apiRequest(`/api/ratings?date=${dateStr}`);
+
+        const ratingsList = document.getElementById('ratings-list');
+
+        if (ratings.length === 0) {
+            ratingsList.innerHTML = '<div class="empty-state"><span class="empty-state-icon">⭐</span><div class="empty-state-text">No ratings for this day</div></div>';
+            updateChart([]);
+            return;
+        }
+
+        // Sort by timestamp descending
+        ratings.sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp));
+
+        ratingsList.innerHTML = ratings.map(rating => {
+            const info = metricInfo[rating.metric_type];
+            return `
+                <div class="entry-item">
+                    <div class="entry-header">
+                        <div class="entry-title">
+                            ${info.icon} ${info.name}: ${rating.value}/10
+                        </div>
+                        <button class="entry-delete" onclick="deleteRating(${rating.id})" title="Delete">🗑️</button>
+                    </div>
+                    <div class="entry-meta">
+                        ${formatTime(rating.timestamp)}
+                    </div>
+                    ${rating.notes ? `<div class="entry-details">${rating.notes}</div>` : ''}
+                </div>
+            `;
+        }).join('');
+
+        updateChart(ratings);
+    } catch (error) {
+        console.error('Error loading ratings:', error);
+    }
+}
+
+// Update chart
+function updateChart(ratings) {
+    const canvas = document.getElementById('ratings-chart');
+    const ctx = canvas.getContext('2d');
+
+    // Destroy existing chart
+    if (ratingsChart) {
+        ratingsChart.destroy();
+    }
+
+    if (ratings.length === 0) {
+        ratingsChart = null;
+        return;
+    }
+
+    // Group ratings by metric type
+    const datasets = [];
+
+    Object.keys(metricInfo).forEach(metricType => {
+        const metricRatings = ratings.filter(r => r.metric_type === metricType);
+
+        if (metricRatings.length > 0) {
+            // Sort by timestamp
+            metricRatings.sort((a, b) => new Date(a.timestamp) - new Date(b.timestamp));
+
+            datasets.push({
+                label: metricInfo[metricType].name,
+                data: metricRatings.map(r => ({
+                    x: new Date(r.timestamp),
+                    y: r.value
+                })),
+                borderColor: metricInfo[metricType].color,
+                backgroundColor: metricInfo[metricType].color + '33',
+                tension: 0.4,
+                fill: false
+            });
+        }
+    });
+
+    ratingsChart = new Chart(ctx, {
+        type: 'line',
+        data: { datasets },
+        options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            plugins: {
+                legend: {
+                    display: true,
+                    position: 'bottom',
+                    labels: {
+                        color: '#f1f5f9',
+                        padding: 12,
+                        font: { size: 12 }
+                    }
+                },
+                tooltip: {
+                    mode: 'index',
+                    intersect: false,
+                    backgroundColor: '#1e293b',
+                    borderColor: '#4ade80',
+                    borderWidth: 1,
+                    titleColor: '#4ade80',
+                    bodyColor: '#f1f5f9',
+                    padding: 12
+                }
+            },
+            scales: {
+                x: {
+                    type: 'time',
+                    time: {
+                        unit: 'hour',
+                        displayFormats: {
+                            hour: 'ha'
+                        }
+                    },
+                    grid: {
+                        color: '#475569'
+                    },
+                    ticks: {
+                        color: '#cbd5e1'
+                    }
+                },
+                y: {
+                    min: 0,
+                    max: 10,
+                    ticks: {
+                        stepSize: 2,
+                        color: '#cbd5e1'
+                    },
+                    grid: {
+                        color: '#475569'
+                    }
+                }
+            }
+        }
+    });
+}
+
+// Update day display
+function updateDayDisplay() {
+    const dateStr = currentDate.toISOString().split('T')[0];
+    const todayStr = new Date().toISOString().split('T')[0];
+
+    document.getElementById('current-day').textContent = formatDate(dateStr);
+    document.getElementById('ratings-date').textContent = formatDate(dateStr);
+
+    // Disable next button if viewing today
+    document.getElementById('next-btn').disabled = dateStr === todayStr;
+}
+
+// Previous day
+function previousDay() {
+    currentDate.setDate(currentDate.getDate() - 1);
+    updateDayDisplay();
+    loadRatings();
+}
+
+// Next day
+function nextDay() {
+    const tomorrow = new Date(currentDate);
+    tomorrow.setDate(tomorrow.getDate() + 1);
+
+    const tomorrowStr = tomorrow.toISOString().split('T')[0];
+    const todayStr = new Date().toISOString().split('T')[0];
+
+    if (tomorrowStr <= todayStr) {
+        currentDate = tomorrow;
+        updateDayDisplay();
+        loadRatings();
+    }
+}
+
+// Quick rate
+function quickRate(metricType) {
+    const info = metricInfo[metricType];
+
+    const content = `
+        <form id="quick-rate-form" onsubmit="submitQuickRate(event, '${metricType}')">
+            <div class="form-group">
+                <label class="form-label">Rate your ${info.name} (1-10)</label>
+                <div class="slider-container">
+                    <input type="range" class="slider" name="value" min="1" max="10" value="5" oninput="document.getElementById('slider-value').textContent = this.value">
+                    <div class="slider-value" id="slider-value">5</div>
+                </div>
+            </div>
+            <div class="form-group">
+                <label class="form-label">Time (optional - defaults to now)</label>
+                <input type="datetime-local" class="form-input" name="timestamp" value="${formatDateTimeForInput(new Date().toISOString())}">
+            </div>
+            <div class="form-group">
+                <label class="form-label">Notes (optional)</label>
+                <textarea class="form-textarea" name="notes" placeholder="Any context or observations"></textarea>
+            </div>
+            <button type="submit" class="btn btn-primary btn-block">Submit Rating</button>
+        </form>
+    `;
+
+    openModal(`${info.icon} Rate ${info.name}`, content);
+}
+
+// Submit quick rate
+async function submitQuickRate(event, metricType) {
+    event.preventDefault();
+    const form = event.target;
+    const formData = new FormData(form);
+
+    const timestamp = parseDateTimeInput(formData.get('timestamp'));
+
+    const data = {
+        date: new Date(timestamp).toISOString().split('T')[0],
+        timestamp: timestamp,
+        metric_type: metricType,
+        value: parseInt(formData.get('value')),
+        notes: formData.get('notes') || null
+    };
+
+    try {
+        await apiRequest('/api/ratings', 'POST', data);
+        showToast('Rating submitted!');
+        closeModal();
+        loadRatings();
+    } catch (error) {
+        console.error('Error submitting rating:', error);
+    }
+}
+
+// Delete rating
+async function deleteRating(id) {
+    if (!confirmDelete('Delete this rating?')) return;
+
+    try {
+        await apiRequest(`/api/ratings/${id}`, 'DELETE');
+        showToast('Rating deleted');
+        loadRatings();
+    } catch (error) {
+        console.error('Error deleting rating:', error);
+    }
+}
+
+// Initialize
+document.addEventListener('DOMContentLoaded', () => {
+    updateDayDisplay();
+    loadRatings();
+});
+</script>
+{% endblock %}

@@ -1,0 +1,294 @@
+{% extends "base.html" %}
+
+{% block title %}Hunger Tracking - Allulose Tracker{% endblock %}
+{% block header %}Hunger Tracking{% endblock %}
+{% block nav_hunger %}active{% endblock %}
+
+{% block content %}
+<!-- Day Selector -->
+<div class="day-selector">
+    <button class="day-nav-btn" onclick="previousDay()" id="prev-btn">← Prev</button>
+    <div class="current-day" id="current-day">Today</div>
+    <button class="day-nav-btn" onclick="nextDay()" id="next-btn">Next →</button>
+</div>
+
+<!-- Manual Entry Button -->
+<button class="btn btn-primary btn-block mb-2" onclick="showManualEntryForm()">
+    Add Manual Entry
+</button>
+
+<!-- Baseline Mode Toggle -->
+<div class="card">
+    <div style="display: flex; justify-content: space-between; align-items: center;">
+        <div>
+            <div style="font-weight: 600;">Baseline Mode (Week 1)</div>
+            <div style="font-size: 0.875rem; color: var(--text-muted);">Log entries without Allulose</div>
+        </div>
+        <label style="position: relative; display: inline-block; width: 60px; height: 30px;">
+            <input type="checkbox" id="baseline-toggle" onchange="toggleBaselineMode()" style="opacity: 0; width: 0; height: 0;">
+            <span style="position: absolute; cursor: pointer; top: 0; left: 0; right: 0; bottom: 0; background: var(--bg-tertiary); transition: 0.3s; border-radius: 30px; border: 1px solid var(--border);"></span>
+            <span style="position: absolute; content: ''; height: 22px; width: 22px; left: 4px; bottom: 3px; background: white; transition: 0.3s; border-radius: 50%;"></span>
+        </label>
+    </div>
+</div>
+
+<!-- Entries List -->
+<div class="card">
+    <div class="card-header">Entries for <span id="entries-date">Today</span></div>
+    <div id="entries-list">
+        <div class="loading">Loading entries...</div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+let currentDate = new Date();
+let allDates = [];
+let isBaselineMode = false;
+
+// Load all available dates
+async function loadAvailableDates() {
+    try {
+        allDates = await apiRequest('/api/days');
+    } catch (error) {
+        console.error('Error loading dates:', error);
+    }
+}
+
+// Load entries for current date
+async function loadEntries() {
+    const dateStr = currentDate.toISOString().split('T')[0];
+
+    try {
+        const entries = await apiRequest(`/api/hunger?date=${dateStr}`);
+
+        const entriesList = document.getElementById('entries-list');
+
+        if (entries.length === 0) {
+            entriesList.innerHTML = '<div class="empty-state"><span class="empty-state-icon">📝</span><div class="empty-state-text">No entries for this day</div></div>';
+            return;
+        }
+
+        entriesList.innerHTML = entries.map(entry => `
+            <div class="entry-item">
+                <div class="entry-header">
+                    <div class="entry-title">
+                        ${entry.is_baseline ? '🔵 Baseline' : `Variant ${entry.variant}`}
+                        - ${formatDuration(entry.duration_minutes)}
+                    </div>
+                    <button class="entry-delete" onclick="deleteEntry(${entry.id})" title="Delete">🗑️</button>
+                </div>
+                <div class="entry-meta">
+                    Started: ${formatTime(entry.allulose_time)} → Hungry: ${formatTime(entry.hunger_time)}
+                </div>
+                ${entry.activity_level || entry.sleep_hours || entry.stress_level ? `
+                    <div class="entry-details">
+                        ${entry.activity_level ? `Activity: ${entry.activity_level} | ` : ''}
+                        ${entry.sleep_hours ? `Sleep: ${entry.sleep_hours}h (${entry.sleep_quality}/10) | ` : ''}
+                        ${entry.stress_level ? `Stress: ${entry.stress_level}/10` : ''}
+                    </div>
+                ` : ''}
+                ${entry.concerta_timing ? `<div class="entry-details">Concerta: ${entry.concerta_timing}</div>` : ''}
+                ${entry.water_intake_oz ? `<div class="entry-details">Water: ${entry.water_intake_oz}oz</div>` : ''}
+                ${entry.food_eaten ? `<div class="entry-details">Food: ${entry.food_eaten}</div>` : ''}
+                ${entry.notes ? `<div class="entry-details">Notes: ${entry.notes}</div>` : ''}
+            </div>
+        `).join('');
+    } catch (error) {
+        console.error('Error loading entries:', error);
+    }
+}
+
+// Update day display
+function updateDayDisplay() {
+    const dateStr = currentDate.toISOString().split('T')[0];
+    const todayStr = new Date().toISOString().split('T')[0];
+
+    document.getElementById('current-day').textContent = formatDate(dateStr);
+    document.getElementById('entries-date').textContent = formatDate(dateStr);
+
+    // Disable next button if viewing today
+    document.getElementById('next-btn').disabled = dateStr === todayStr;
+}
+
+// Previous day
+function previousDay() {
+    currentDate.setDate(currentDate.getDate() - 1);
+    updateDayDisplay();
+    loadEntries();
+}
+
+// Next day
+function nextDay() {
+    const tomorrow = new Date(currentDate);
+    tomorrow.setDate(tomorrow.getDate() + 1);
+
+    const tomorrowStr = tomorrow.toISOString().split('T')[0];
+    const todayStr = new Date().toISOString().split('T')[0];
+
+    if (tomorrowStr <= todayStr) {
+        currentDate = tomorrow;
+        updateDayDisplay();
+        loadEntries();
+    }
+}
+
+// Toggle baseline mode
+function toggleBaselineMode() {
+    const toggle = document.getElementById('baseline-toggle');
+    isBaselineMode = toggle.checked;
+
+    // Update toggle styling
+    const slider = toggle.nextElementSibling;
+    const knob = slider.nextElementSibling;
+
+    if (isBaselineMode) {
+        slider.style.background = 'var(--accent)';
+        knob.style.transform = 'translateX(30px)';
+    } else {
+        slider.style.background = 'var(--bg-tertiary)';
+        knob.style.transform = 'translateX(0)';
+    }
+}
+
+// Show manual entry form
+function showManualEntryForm() {
+    const now = new Date();
+    const oneHourAgo = new Date(now.getTime() - 60 * 60 * 1000);
+
+    const content = `
+        <form id="manual-entry-form" onsubmit="submitManualEntry(event)">
+            <div class="form-group">
+                <label class="form-label">Variant</label>
+                <select class="form-select" name="variant" required ${isBaselineMode ? 'disabled' : ''}>
+                    <option value="A">Variant A: Meal + Allulose</option>
+                    <option value="B">Variant B: Allulose only</option>
+                </select>
+            </div>
+
+            ${isBaselineMode ? '<div style="padding: 0.75rem; background: rgba(59, 130, 246, 0.1); border-radius: 0.5rem; border: 1px solid var(--info); margin-bottom: 1rem;"><div style="color: var(--info); font-weight: 600;">ℹ️ Baseline Mode Active</div><div style="font-size: 0.875rem; color: var(--text-secondary); margin-top: 0.25rem;">This entry will be logged as baseline (no Allulose)</div></div>' : ''}
+
+            <div class="form-group">
+                <label class="form-label">Allulose/Start Time</label>
+                <input type="datetime-local" class="form-input" name="allulose_time" value="${formatDateTimeForInput(oneHourAgo.toISOString())}" required>
+            </div>
+
+            <div class="form-group">
+                <label class="form-label">Hunger Time</label>
+                <input type="datetime-local" class="form-input" name="hunger_time" value="${formatDateTimeForInput(now.toISOString())}" required>
+            </div>
+
+            <div class="form-group">
+                <label class="form-label">Activity Level</label>
+                <select class="form-select" name="activity_level">
+                    <option value="">Not specified</option>
+                    <option value="Low">Low</option>
+                    <option value="Medium">Medium</option>
+                    <option value="High">High</option>
+                </select>
+            </div>
+
+            <div class="form-row">
+                <div class="form-group">
+                    <label class="form-label">Sleep Hours</label>
+                    <input type="number" class="form-input" name="sleep_hours" step="0.5" min="0" max="24">
+                </div>
+                <div class="form-group">
+                    <label class="form-label">Sleep Quality (1-10)</label>
+                    <input type="number" class="form-input" name="sleep_quality" min="1" max="10">
+                </div>
+            </div>
+
+            <div class="form-group">
+                <label class="form-label">Stress Level (1-10)</label>
+                <input type="number" class="form-input" name="stress_level" min="1" max="10">
+            </div>
+
+            <div class="form-group">
+                <label class="form-label">Concerta Timing</label>
+                <input type="text" class="form-input" name="concerta_timing" placeholder="e.g., 8am, 2 hours before">
+            </div>
+
+            <div class="form-group">
+                <label class="form-label">Water Intake (oz)</label>
+                <input type="number" class="form-input" name="water_intake_oz" min="0">
+            </div>
+
+            <div class="form-group">
+                <label class="form-label">Food Eaten</label>
+                <textarea class="form-textarea" name="food_eaten" placeholder="What did you eat?"></textarea>
+            </div>
+
+            <div class="form-group">
+                <label class="form-label">Notes</label>
+                <textarea class="form-textarea" name="notes" placeholder="Any additional observations"></textarea>
+            </div>
+
+            <button type="submit" class="btn btn-primary btn-block">Add Entry</button>
+        </form>
+    `;
+
+    openModal('Add Manual Entry', content);
+}
+
+// Submit manual entry
+async function submitManualEntry(event) {
+    event.preventDefault();
+    const form = event.target;
+    const formData = new FormData(form);
+
+    const alluloseTime = parseDateTimeInput(formData.get('allulose_time'));
+    const hungerTime = parseDateTimeInput(formData.get('hunger_time'));
+    const duration = calculateMinutes(alluloseTime, hungerTime);
+
+    const data = {
+        date: new Date(alluloseTime).toISOString().split('T')[0],
+        variant: formData.get('variant'),
+        allulose_time: alluloseTime,
+        hunger_time: hungerTime,
+        duration_minutes: duration,
+        activity_level: formData.get('activity_level') || null,
+        sleep_hours: formData.get('sleep_hours') ? parseFloat(formData.get('sleep_hours')) : null,
+        sleep_quality: formData.get('sleep_quality') ? parseInt(formData.get('sleep_quality')) : null,
+        stress_level: formData.get('stress_level') ? parseInt(formData.get('stress_level')) : null,
+        concerta_timing: formData.get('concerta_timing') || null,
+        water_intake_oz: formData.get('water_intake_oz') ? parseInt(formData.get('water_intake_oz')) : null,
+        food_eaten: formData.get('food_eaten') || null,
+        notes: formData.get('notes') || null,
+        is_baseline: isBaselineMode
+    };
+
+    try {
+        await apiRequest('/api/hunger', 'POST', data);
+        showToast('Entry added!');
+        closeModal();
+        loadEntries();
+        loadAvailableDates();
+    } catch (error) {
+        console.error('Error adding entry:', error);
+    }
+}
+
+// Delete entry
+async function deleteEntry(id) {
+    if (!confirmDelete('Delete this hunger entry?')) return;
+
+    try {
+        await apiRequest(`/api/hunger/${id}`, 'DELETE');
+        showToast('Entry deleted');
+        loadEntries();
+        loadAvailableDates();
+    } catch (error) {
+        console.error('Error deleting entry:', error);
+    }
+}
+
+// Initialize
+document.addEventListener('DOMContentLoaded', () => {
+    updateDayDisplay();
+    loadAvailableDates();
+    loadEntries();
+});
+</script>
+{% endblock %}

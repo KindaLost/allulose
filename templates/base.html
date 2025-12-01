@@ -1,0 +1,61 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{% block title %}Allulose Tracker{% endblock %}</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+</head>
+<body>
+    <div class="app-container">
+        <header class="app-header">
+            <h1>{% block header %}Allulose Tracker{% endblock %}</h1>
+        </header>
+
+        <main class="app-main">
+            {% block content %}{% endblock %}
+        </main>
+
+        <nav class="bottom-nav">
+            <a href="/" class="nav-item {% block nav_dashboard %}{% endblock %}">
+                <span class="nav-icon">📊</span>
+                <span class="nav-label">Dashboard</span>
+            </a>
+            <a href="/hunger" class="nav-item {% block nav_hunger %}{% endblock %}">
+                <span class="nav-icon">⏱️</span>
+                <span class="nav-label">Hunger</span>
+            </a>
+            <a href="/ratings" class="nav-item {% block nav_ratings %}{% endblock %}">
+                <span class="nav-icon">⭐</span>
+                <span class="nav-label">Ratings</span>
+            </a>
+            <a href="/gi" class="nav-item {% block nav_gi %}{% endblock %}">
+                <span class="nav-icon">🔔</span>
+                <span class="nav-label">GI</span>
+            </a>
+            <a href="/settings" class="nav-item {% block nav_settings %}{% endblock %}">
+                <span class="nav-icon">⚙️</span>
+                <span class="nav-label">Settings</span>
+            </a>
+        </nav>
+    </div>
+
+    <!-- Toast notification -->
+    <div id="toast" class="toast"></div>
+
+    <!-- Bottom sheet modal -->
+    <div id="modal-overlay" class="modal-overlay">
+        <div id="modal-content" class="modal-content">
+            <div class="modal-header">
+                <h2 id="modal-title"></h2>
+                <button class="modal-close" onclick="closeModal()">&times;</button>
+            </div>
+            <div id="modal-body" class="modal-body"></div>
+        </div>
+    </div>
+
+    <script src="{{ url_for('static', filename='js/common.js') }}"></script>
+    {% block scripts %}{% endblock %}
+</body>
+</html>

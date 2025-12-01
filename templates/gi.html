@@ -1,0 +1,233 @@
+{% extends "base.html" %}
+
+{% block title %}GI Events - Allulose Tracker{% endblock %}
+{% block header %}GI Events{% endblock %}
+{% block nav_gi %}active{% endblock %}
+
+{% block content %}
+<!-- Log Event Button -->
+<button class="btn btn-primary btn-block btn-large mb-2" onclick="showGIForm()">
+    Log GI Discomfort
+</button>
+
+<!-- Info Card -->
+<div class="card" style="background: rgba(59, 130, 246, 0.1); border-color: var(--info);">
+    <div style="font-size: 0.875rem; color: var(--text-secondary);">
+        <strong style="color: var(--info);">ℹ️ When to Log:</strong><br>
+        Only log when you experience GI discomfort. This helps identify your personal Allulose tolerance threshold. No discomfort = no need to log!
+    </div>
+</div>
+
+<!-- Tolerance Insight -->
+<div id="tolerance-card" class="card hidden">
+    <div class="card-header">Tolerance Threshold</div>
+    <div style="text-align: center; padding: 1rem;">
+        <div style="font-size: 2.5rem; font-weight: 700; color: var(--accent); margin-bottom: 0.5rem;" id="threshold-value">-</div>
+        <div style="color: var(--text-muted);">Suggested maximum per serving</div>
+    </div>
+    <div style="font-size: 0.875rem; color: var(--text-secondary); margin-top: 1rem; padding-top: 1rem; border-top: 1px solid var(--border);">
+        Based on events with severity ≥5/10
+    </div>
+</div>
+
+<!-- Events List -->
+<div class="card">
+    <div class="card-header">Recent Events</div>
+    <div id="events-list">
+        <div class="loading">Loading events...</div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+const symptomOptions = [
+    'Gas',
+    'Bloating',
+    'Cramping',
+    'Diarrhea',
+    'Nausea',
+    'Other'
+];
+
+// Load GI events
+async function loadEvents() {
+    try {
+        const events = await apiRequest('/api/gi');
+
+        const eventsList = document.getElementById('events-list');
+
+        if (events.length === 0) {
+            eventsList.innerHTML = '<div class="empty-state"><span class="empty-state-icon">✅</span><div class="empty-state-text">No GI events logged - that\'s great!</div></div>';
+            document.getElementById('tolerance-card').classList.add('hidden');
+            return;
+        }
+
+        // Calculate threshold
+        const severeEvents = events.filter(e => e.severity >= 5);
+        if (severeEvents.length > 0) {
+            const threshold = Math.min(...severeEvents.map(e => e.allulose_amount_g));
+            document.getElementById('threshold-value').textContent = threshold + 'g';
+            document.getElementById('tolerance-card').classList.remove('hidden');
+        }
+
+        eventsList.innerHTML = events.map(event => {
+            const severityColor = event.severity >= 7 ? 'var(--danger)' : event.severity >= 4 ? 'var(--warning)' : 'var(--info)';
+
+            return `
+                <div class="entry-item">
+                    <div class="entry-header">
+                        <div class="entry-title" style="color: ${severityColor};">
+                            ${event.allulose_amount_g}g - Severity ${event.severity}/10
+                        </div>
+                        <button class="entry-delete" onclick="deleteEvent(${event.id})" title="Delete">🗑️</button>
+                    </div>
+                    <div class="entry-meta">
+                        ${formatDate(event.date)} at ${formatTime(event.timestamp)} (${event.time_since_consumption_min} min after)
+                    </div>
+                    <div class="entry-details">
+                        Symptoms: ${event.symptoms.join(', ')}
+                    </div>
+                    ${event.duration_minutes ? `<div class="entry-details">Duration: ${formatDuration(event.duration_minutes)}</div>` : ''}
+                    ${event.notes ? `<div class="entry-details">Notes: ${event.notes}</div>` : ''}
+                </div>
+            `;
+        }).join('');
+    } catch (error) {
+        console.error('Error loading events:', error);
+    }
+}
+
+// Show GI form
+function showGIForm() {
+    const now = new Date();
+    const formattedNow = formatDateTimeForInput(now.toISOString());
+
+    const content = `
+        <form id="gi-form" onsubmit="submitGIEvent(event)">
+            <div class="form-group">
+                <label class="form-label">Allulose Amount (grams)</label>
+                <input type="number" class="form-input" name="allulose_amount_g" min="1" required>
+            </div>
+
+            <div class="form-group">
+                <label class="form-label">Time Since Consumption (minutes)</label>
+                <input type="number" class="form-input" name="time_since_consumption_min" min="0" required>
+            </div>
+
+            <div class="form-group">
+                <label class="form-label">Symptoms (select all that apply)</label>
+                <div class="checkbox-group">
+                    ${symptomOptions.map(symptom => `
+                        <div class="checkbox-item">
+                            <input type="checkbox" id="symptom-${symptom}" name="symptoms" value="${symptom}">
+                            <label for="symptom-${symptom}">${symptom}</label>
+                        </div>
+                    `).join('')}
+                </div>
+            </div>
+
+            <div class="form-group">
+                <label class="form-label">Severity (1-10)</label>
+                <div class="slider-container">
+                    <input type="range" class="slider" name="severity" min="1" max="10" value="5" oninput="updateSeverityDisplay(this.value)">
+                    <div class="slider-value" id="severity-value">5</div>
+                </div>
+            </div>
+
+            <div class="form-group">
+                <label class="form-label">Duration (minutes, optional)</label>
+                <input type="number" class="form-input" name="duration_minutes" min="0" placeholder="Leave blank if ongoing">
+            </div>
+
+            <div class="form-group">
+                <label class="form-label">Time of Event (optional - defaults to now)</label>
+                <input type="datetime-local" class="form-input" name="timestamp" value="${formattedNow}">
+            </div>
+
+            <div class="form-group">
+                <label class="form-label">Notes</label>
+                <textarea class="form-textarea" name="notes" placeholder="Any additional context or observations"></textarea>
+            </div>
+
+            <button type="submit" class="btn btn-primary btn-block">Log Event</button>
+        </form>
+    `;
+
+    openModal('Log GI Event', content);
+}
+
+// Update severity display
+function updateSeverityDisplay(value) {
+    const display = document.getElementById('severity-value');
+    display.textContent = value;
+
+    // Change color based on severity
+    if (value >= 7) {
+        display.style.color = 'var(--danger)';
+    } else if (value >= 4) {
+        display.style.color = 'var(--warning)';
+    } else {
+        display.style.color = 'var(--accent)';
+    }
+}
+
+// Submit GI event
+async function submitGIEvent(event) {
+    event.preventDefault();
+    const form = event.target;
+    const formData = new FormData(form);
+
+    // Get selected symptoms
+    const symptoms = [];
+    form.querySelectorAll('input[name="symptoms"]:checked').forEach(checkbox => {
+        symptoms.push(checkbox.value);
+    });
+
+    if (symptoms.length === 0) {
+        showToast('Please select at least one symptom');
+        return;
+    }
+
+    const timestamp = parseDateTimeInput(formData.get('timestamp'));
+
+    const data = {
+        date: new Date(timestamp).toISOString().split('T')[0],
+        timestamp: timestamp,
+        allulose_amount_g: parseInt(formData.get('allulose_amount_g')),
+        time_since_consumption_min: parseInt(formData.get('time_since_consumption_min')),
+        symptoms: symptoms,
+        severity: parseInt(formData.get('severity')),
+        duration_minutes: formData.get('duration_minutes') ? parseInt(formData.get('duration_minutes')) : null,
+        notes: formData.get('notes') || null
+    };
+
+    try {
+        await apiRequest('/api/gi', 'POST', data);
+        showToast('GI event logged');
+        closeModal();
+        loadEvents();
+    } catch (error) {
+        console.error('Error logging GI event:', error);
+    }
+}
+
+// Delete event
+async function deleteEvent(id) {
+    if (!confirmDelete('Delete this GI event?')) return;
+
+    try {
+        await apiRequest(`/api/gi/${id}`, 'DELETE');
+        showToast('Event deleted');
+        loadEvents();
+    } catch (error) {
+        console.error('Error deleting event:', error);
+    }
+}
+
+// Initialize
+document.addEventListener('DOMContentLoaded', () => {
+    loadEvents();
+});
+</script>
+{% endblock %}

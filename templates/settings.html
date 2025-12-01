@@ -1,0 +1,260 @@
+{% extends "base.html" %}
+
+{% block title %}Settings - Allulose Tracker{% endblock %}
+{% block header %}Settings{% endblock %}
+{% block nav_settings %}active{% endblock %}
+
+{% block content %}
+<!-- Experiment Week -->
+<div class="card">
+    <div class="card-header">Experiment Week</div>
+    <div class="form-group">
+        <label class="form-label">Current Week</label>
+        <select class="form-select" id="week-select" onchange="updateWeek()">
+            <option value="1">Week 1 (Baseline - No Allulose)</option>
+            <option value="2">Week 2 (With Allulose)</option>
+            <option value="3">Week 3 (With Allulose)</option>
+            <option value="4">Week 4 (With Allulose)</option>
+            <option value="5">Week 5 (With Allulose)</option>
+            <option value="6">Week 6 (With Allulose)</option>
+        </select>
+    </div>
+    <div style="font-size: 0.875rem; color: var(--text-muted); margin-top: 0.5rem;">
+        Week 1 is your baseline period without Allulose. Use the baseline toggle in the Hunger page to log baseline entries.
+    </div>
+</div>
+
+<!-- Statistics -->
+<div class="card">
+    <div class="card-header">Statistics</div>
+    <div id="stats-display">
+        <div class="loading">Loading statistics...</div>
+    </div>
+</div>
+
+<!-- Data Management -->
+<div class="card">
+    <div class="card-header">Data Management</div>
+
+    <button class="btn btn-secondary btn-block mb-1" onclick="exportData()">
+        📤 Export All Data
+    </button>
+
+    <button class="btn btn-secondary btn-block mb-1" onclick="showImportDialog()">
+        📥 Import Data
+    </button>
+
+    <button class="btn btn-danger btn-block" onclick="clearAllData()">
+        🗑️ Clear All Data
+    </button>
+
+    <div style="font-size: 0.875rem; color: var(--text-muted); margin-top: 1rem; padding-top: 1rem; border-top: 1px solid var(--border);">
+        <strong>💡 Tip:</strong> Export your data regularly to sync between devices or create backups. The exported JSON file can be imported on any device running this app.
+    </div>
+</div>
+
+<!-- About -->
+<div class="card">
+    <div class="card-header">About</div>
+    <div style="font-size: 0.875rem; color: var(--text-secondary);">
+        <p><strong>Allulose Experiment Tracker</strong></p>
+        <p>Track the effects of Allulose consumption on appetite suppression (GLP-1 stimulation) and fat oxidation.</p>
+        <p style="margin-top: 1rem; color: var(--text-muted);">
+            This app is designed to help you identify your personal Allulose tolerance and effectiveness through systematic tracking and data analysis.
+        </p>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+// Load current settings
+async function loadSettings() {
+    try {
+        const weekData = await apiRequest('/api/settings/week');
+        document.getElementById('week-select').value = weekData.week;
+
+        loadStats();
+    } catch (error) {
+        console.error('Error loading settings:', error);
+    }
+}
+
+// Update week
+async function updateWeek() {
+    const week = parseInt(document.getElementById('week-select').value);
+
+    try {
+        await apiRequest('/api/settings/week', 'POST', { week });
+        showToast('Week updated!');
+    } catch (error) {
+        console.error('Error updating week:', error);
+    }
+}
+
+// Load statistics
+async function loadStats() {
+    try {
+        const stats = await apiRequest('/api/stats');
+
+        const statsDisplay = document.getElementById('stats-display');
+
+        statsDisplay.innerHTML = `
+            <div style="display: grid; gap: 1rem;">
+                <div class="stat-card">
+                    <div style="font-size: 0.875rem; color: var(--text-muted); margin-bottom: 0.5rem;">Total Entries</div>
+                    <div style="display: flex; justify-content: space-around; text-align: center;">
+                        <div>
+                            <div style="font-size: 1.5rem; font-weight: 700; color: var(--accent);">${stats.total_entries.hunger}</div>
+                            <div style="font-size: 0.75rem; color: var(--text-muted);">Hunger</div>
+                        </div>
+                        <div>
+                            <div style="font-size: 1.5rem; font-weight: 700; color: var(--accent);">${stats.total_entries.ratings}</div>
+                            <div style="font-size: 0.75rem; color: var(--text-muted);">Ratings</div>
+                        </div>
+                        <div>
+                            <div style="font-size: 1.5rem; font-weight: 700; color: var(--accent);">${stats.total_entries.gi_events}</div>
+                            <div style="font-size: 0.75rem; color: var(--text-muted);">GI Events</div>
+                        </div>
+                    </div>
+                </div>
+
+                ${stats.baseline_avg_minutes > 0 || stats.allulose_avg_minutes > 0 ? `
+                    <div class="stat-card">
+                        <div style="font-size: 0.875rem; color: var(--text-muted); margin-bottom: 0.5rem;">Hunger Delay Averages</div>
+                        <div style="display: flex; justify-content: space-around; text-align: center; gap: 1rem;">
+                            <div>
+                                <div style="font-size: 1.25rem; font-weight: 700; color: var(--info);">${formatDuration(stats.baseline_avg_minutes)}</div>
+                                <div style="font-size: 0.75rem; color: var(--text-muted);">Baseline</div>
+                            </div>
+                            <div>
+                                <div style="font-size: 1.25rem; font-weight: 700; color: var(--accent);">${formatDuration(stats.allulose_avg_minutes)}</div>
+                                <div style="font-size: 0.75rem; color: var(--text-muted);">With Allulose</div>
+                            </div>
+                            <div>
+                                <div style="font-size: 1.25rem; font-weight: 700; color: ${stats.improvement_minutes > 0 ? 'var(--accent)' : 'var(--danger)'};">
+                                    ${stats.improvement_minutes > 0 ? '+' : ''}${formatDuration(Math.abs(stats.improvement_minutes))}
+                                </div>
+                                <div style="font-size: 0.75rem; color: var(--text-muted);">Improvement</div>
+                            </div>
+                        </div>
+                    </div>
+                ` : ''}
+
+                ${stats.gi_threshold ? `
+                    <div class="stat-card" style="background: rgba(239, 68, 68, 0.1); border: 1px solid var(--danger);">
+                        <div style="font-size: 0.875rem; color: var(--danger); margin-bottom: 0.5rem; font-weight: 600;">⚠️ GI Tolerance Threshold</div>
+                        <div style="text-align: center;">
+                            <div style="font-size: 2rem; font-weight: 700; color: var(--danger);">${stats.gi_threshold}g</div>
+                            <div style="font-size: 0.75rem; color: var(--text-muted);">Maximum recommended per serving</div>
+                        </div>
+                    </div>
+                ` : `
+                    <div class="stat-card" style="background: rgba(74, 222, 128, 0.1); border: 1px solid var(--accent);">
+                        <div style="font-size: 0.875rem; color: var(--accent); text-align: center; font-weight: 600;">✅ No severe GI events logged</div>
+                    </div>
+                `}
+            </div>
+        `;
+    } catch (error) {
+        console.error('Error loading stats:', error);
+    }
+}
+
+// Export data
+async function exportData() {
+    try {
+        const data = await apiRequest('/api/export');
+
+        const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+        const url = URL.createObjectURL(blob);
+
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = `allulose-tracker-export-${new Date().toISOString().split('T')[0]}.json`;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        URL.revokeObjectURL(url);
+
+        showToast('Data exported successfully!');
+    } catch (error) {
+        console.error('Error exporting data:', error);
+    }
+}
+
+// Show import dialog
+function showImportDialog() {
+    const content = `
+        <div class="form-group">
+            <label class="form-label">Select JSON file to import</label>
+            <input type="file" class="form-input" id="import-file" accept=".json">
+        </div>
+
+        <div style="padding: 1rem; background: rgba(245, 158, 11, 0.1); border-radius: 0.5rem; border: 1px solid var(--warning); margin: 1rem 0;">
+            <div style="color: var(--warning); font-weight: 600;">⚠️ Warning</div>
+            <div style="font-size: 0.875rem; color: var(--text-secondary); margin-top: 0.5rem;">
+                Importing will replace ALL existing data. Make sure to export your current data first if you want to keep it.
+            </div>
+        </div>
+
+        <button class="btn btn-primary btn-block" onclick="importData()">Import Data</button>
+    `;
+
+    openModal('Import Data', content);
+}
+
+// Import data
+async function importData() {
+    const fileInput = document.getElementById('import-file');
+    const file = fileInput.files[0];
+
+    if (!file) {
+        showToast('Please select a file');
+        return;
+    }
+
+    if (!confirm('This will replace ALL existing data. Are you sure?')) {
+        return;
+    }
+
+    try {
+        const text = await file.text();
+        const data = JSON.parse(text);
+
+        await apiRequest('/api/import', 'POST', data);
+
+        showToast('Data imported successfully!');
+        closeModal();
+        loadSettings();
+    } catch (error) {
+        console.error('Error importing data:', error);
+        showToast('Import failed. Please check the file format.');
+    }
+}
+
+// Clear all data
+async function clearAllData() {
+    if (!confirm('This will DELETE ALL data permanently. Are you absolutely sure?')) {
+        return;
+    }
+
+    if (!confirm('Last chance! This cannot be undone. Proceed with deleting all data?')) {
+        return;
+    }
+
+    try {
+        await apiRequest('/api/clear', 'POST');
+        showToast('All data cleared');
+        loadSettings();
+    } catch (error) {
+        console.error('Error clearing data:', error);
+    }
+}
+
+// Initialize
+document.addEventListener('DOMContentLoaded', () => {
+    loadSettings();
+});
+</script>
+{% endblock %}
