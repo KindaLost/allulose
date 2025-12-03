@@ -91,6 +91,26 @@ class GIEvent(db.Model):
             'notes': self.notes
         }
 
+class MealEntry(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    date = db.Column(db.Date, nullable=False)
+    timestamp = db.Column(db.DateTime, nullable=False, default=datetime.utcnow)
+    meal_type = db.Column(db.String(20), nullable=False)  # breakfast/lunch/dinner/snack
+    description = db.Column(db.Text, nullable=False)
+    tags = db.Column(db.Text)  # JSON array of tags
+    notes = db.Column(db.Text)
+
+    def to_dict(self):
+        return {
+            'id': self.id,
+            'date': self.date.isoformat(),
+            'timestamp': self.timestamp.isoformat(),
+            'meal_type': self.meal_type,
+            'description': self.description,
+            'tags': json.loads(self.tags) if self.tags else [],
+            'notes': self.notes
+        }
+
 class Settings(db.Model):
     key = db.Column(db.String(50), primary_key=True)
     value = db.Column(db.Text, nullable=False)
@@ -123,6 +143,10 @@ def hunger():
 @app.route('/ratings')
 def ratings():
     return render_template('ratings.html')
+
+@app.route('/meals')
+def meals():
+    return render_template('meals.html')
 
 @app.route('/gi')
 def gi():
@@ -235,6 +259,39 @@ def delete_gi(id):
     db.session.commit()
     return '', 204
 
+# API Endpoints - Meals
+@app.route('/api/meals', methods=['GET', 'POST'])
+def api_meals():
+    if request.method == 'GET':
+        date_param = request.args.get('date')
+        if date_param:
+            target_date = datetime.fromisoformat(date_param).date()
+            meals = MealEntry.query.filter_by(date=target_date).order_by(MealEntry.timestamp.desc()).all()
+        else:
+            meals = MealEntry.query.order_by(MealEntry.timestamp.desc()).all()
+        return jsonify([meal.to_dict() for meal in meals])
+
+    elif request.method == 'POST':
+        data = request.json
+        meal = MealEntry(
+            date=datetime.fromisoformat(data['date']).date(),
+            timestamp=datetime.fromisoformat(data.get('timestamp', datetime.utcnow().isoformat())),
+            meal_type=data['meal_type'],
+            description=data['description'],
+            tags=json.dumps(data.get('tags', [])),
+            notes=data.get('notes')
+        )
+        db.session.add(meal)
+        db.session.commit()
+        return jsonify(meal.to_dict()), 201
+
+@app.route('/api/meals/<int:id>', methods=['DELETE'])
+def delete_meal(id):
+    meal = MealEntry.query.get_or_404(id)
+    db.session.delete(meal)
+    db.session.commit()
+    return '', 204
+
 # API Endpoints - Timer
 @app.route('/api/timer', methods=['GET', 'POST', 'DELETE'])
 def api_timer():
@@ -278,6 +335,7 @@ def api_export():
         'hunger_entries': [e.to_dict() for e in HungerEntry.query.all()],
         'subjective_ratings': [r.to_dict() for r in SubjectiveRating.query.all()],
         'gi_events': [e.to_dict() for e in GIEvent.query.all()],
+        'meal_entries': [m.to_dict() for m in MealEntry.query.all()],
         'settings': {s.key: s.value for s in Settings.query.all()},
         'export_date': datetime.utcnow().isoformat()
     }
@@ -291,6 +349,7 @@ def api_import():
     HungerEntry.query.delete()
     SubjectiveRating.query.delete()
     GIEvent.query.delete()
+    MealEntry.query.delete()
 
     # Import hunger entries
     for entry_data in data.get('hunger_entries', []):
@@ -337,6 +396,18 @@ def api_import():
         )
         db.session.add(event)
 
+    # Import meal entries
+    for meal_data in data.get('meal_entries', []):
+        meal = MealEntry(
+            date=datetime.fromisoformat(meal_data['date']).date(),
+            timestamp=datetime.fromisoformat(meal_data['timestamp']),
+            meal_type=meal_data['meal_type'],
+            description=meal_data['description'],
+            tags=json.dumps(meal_data.get('tags', [])),
+            notes=meal_data.get('notes')
+        )
+        db.session.add(meal)
+
     # Import settings
     for key, value in data.get('settings', {}).items():
         setting = Settings.query.filter_by(key=key).first()
@@ -353,6 +424,7 @@ def api_clear():
     HungerEntry.query.delete()
     SubjectiveRating.query.delete()
     GIEvent.query.delete()
+    MealEntry.query.delete()
 
     # Reset settings
     timer = Settings.query.filter_by(key='active_timer').first()
@@ -400,7 +472,8 @@ def api_stats():
         'total_entries': {
             'hunger': len(baseline_entries) + len(allulose_entries),
             'ratings': SubjectiveRating.query.count(),
-            'gi_events': len(gi_events)
+            'gi_events': len(gi_events),
+            'meals': MealEntry.query.count()
         }
     })
 
@@ -411,6 +484,7 @@ def api_days():
     hunger_dates = db.session.query(HungerEntry.date).distinct().all()
     rating_dates = db.session.query(SubjectiveRating.date).distinct().all()
     gi_dates = db.session.query(GIEvent.date).distinct().all()
+    meal_dates = db.session.query(MealEntry.date).distinct().all()
 
     all_dates = set()
     for date_tuple in hunger_dates:
@@ -418,6 +492,8 @@ def api_days():
     for date_tuple in rating_dates:
         all_dates.add(date_tuple[0].isoformat())
     for date_tuple in gi_dates:
+        all_dates.add(date_tuple[0].isoformat())
+    for date_tuple in meal_dates:
         all_dates.add(date_tuple[0].isoformat())
 
     return jsonify(sorted(list(all_dates), reverse=True))

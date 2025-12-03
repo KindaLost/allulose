@@ -1,0 +1,235 @@
+{% extends "base.html" %}
+
+{% block title %}Meal Log - Allulose Tracker{% endblock %}
+{% block header %}Meal Log{% endblock %}
+{% block nav_meals %}active{% endblock %}
+
+{% block content %}
+<!-- Day Selector -->
+<div class="day-selector">
+    <button class="day-nav-btn" onclick="previousDay()" id="prev-btn">← Prev</button>
+    <div class="current-day" id="current-day">Today</div>
+    <button class="day-nav-btn" onclick="nextDay()" id="next-btn">Next →</button>
+</div>
+
+<!-- Log Meal Button -->
+<button class="btn btn-primary btn-block btn-large mb-2" onclick="showMealForm()">
+    🍽️ Log Meal
+</button>
+
+<!-- Meals List -->
+<div class="card">
+    <div class="card-header">Meals for <span id="meals-date">Today</span></div>
+    <div id="meals-list">
+        <div class="loading">Loading meals...</div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+let currentDate = new Date();
+
+const mealTypeInfo = {
+    breakfast: { icon: '🌅', name: 'Breakfast' },
+    lunch: { icon: '🌞', name: 'Lunch' },
+    dinner: { icon: '🌙', name: 'Dinner' },
+    snack: { icon: '🍎', name: 'Snack' }
+};
+
+const availableTags = [
+    'High Fat',
+    'Low Carb',
+    'High Simple Carb',
+    'High Complex Carb',
+    'High Protein',
+    'Low Protein'
+];
+
+// Load meals for current date
+async function loadMeals() {
+    const dateStr = currentDate.toISOString().split('T')[0];
+
+    try {
+        const meals = await apiRequest(`/api/meals?date=${dateStr}`);
+
+        const mealsList = document.getElementById('meals-list');
+
+        if (meals.length === 0) {
+            mealsList.innerHTML = '<div class="empty-state"><span class="empty-state-icon">🍽️</span><div class="empty-state-text">No meals logged for this day</div></div>';
+            return;
+        }
+
+        mealsList.innerHTML = meals.map(meal => {
+            const typeInfo = mealTypeInfo[meal.meal_type];
+            return `
+                <div class="entry-item">
+                    <div class="entry-header">
+                        <div class="entry-title">
+                            ${typeInfo.icon} ${typeInfo.name}
+                        </div>
+                        <button class="entry-delete" onclick="deleteMeal(${meal.id})" title="Delete">🗑️</button>
+                    </div>
+                    <div class="entry-meta">
+                        ${formatTime(meal.timestamp)}
+                    </div>
+                    <div class="entry-details" style="margin-top: 0.5rem;">
+                        ${meal.description}
+                    </div>
+                    ${meal.tags && meal.tags.length > 0 ? `
+                        <div style="margin-top: 0.5rem; display: flex; flex-wrap: wrap; gap: 0.5rem;">
+                            ${meal.tags.map(tag => `
+                                <span style="background: var(--accent-dim); color: var(--accent); padding: 0.25rem 0.75rem; border-radius: 1rem; font-size: 0.75rem; border: 1px solid var(--accent);">
+                                    ${tag}
+                                </span>
+                            `).join('')}
+                        </div>
+                    ` : ''}
+                    ${meal.notes ? `<div class="entry-details" style="margin-top: 0.5rem; font-style: italic;">Note: ${meal.notes}</div>` : ''}
+                </div>
+            `;
+        }).join('');
+    } catch (error) {
+        console.error('Error loading meals:', error);
+    }
+}
+
+// Update day display
+function updateDayDisplay() {
+    const dateStr = currentDate.toISOString().split('T')[0];
+    const todayStr = new Date().toISOString().split('T')[0];
+
+    document.getElementById('current-day').textContent = formatDate(dateStr);
+    document.getElementById('meals-date').textContent = formatDate(dateStr);
+
+    // Disable next button if viewing today
+    document.getElementById('next-btn').disabled = dateStr === todayStr;
+}
+
+// Previous day
+function previousDay() {
+    currentDate.setDate(currentDate.getDate() - 1);
+    updateDayDisplay();
+    loadMeals();
+}
+
+// Next day
+function nextDay() {
+    const tomorrow = new Date(currentDate);
+    tomorrow.setDate(tomorrow.getDate() + 1);
+
+    const tomorrowStr = tomorrow.toISOString().split('T')[0];
+    const todayStr = new Date().toISOString().split('T')[0];
+
+    if (tomorrowStr <= todayStr) {
+        currentDate = tomorrow;
+        updateDayDisplay();
+        loadMeals();
+    }
+}
+
+// Show meal form
+function showMealForm() {
+    const now = new Date();
+    const formattedNow = formatDateTimeForInput(now.toISOString());
+
+    const content = `
+        <form id="meal-form" onsubmit="submitMeal(event)">
+            <div class="form-group">
+                <label class="form-label">Meal Type</label>
+                <select class="form-select" name="meal_type" required>
+                    <option value="">Select meal type</option>
+                    <option value="breakfast">🌅 Breakfast</option>
+                    <option value="lunch">🌞 Lunch</option>
+                    <option value="dinner">🌙 Dinner</option>
+                    <option value="snack">🍎 Snack</option>
+                </select>
+            </div>
+
+            <div class="form-group">
+                <label class="form-label">What did you eat?</label>
+                <textarea class="form-textarea" name="description" required placeholder="e.g., Grilled chicken, broccoli, and quinoa"></textarea>
+            </div>
+
+            <div class="form-group">
+                <label class="form-label">Tags (select all that apply)</label>
+                <div class="checkbox-group">
+                    ${availableTags.map(tag => `
+                        <div class="checkbox-item">
+                            <input type="checkbox" id="tag-${tag.replace(/\s+/g, '-')}" name="tags" value="${tag}">
+                            <label for="tag-${tag.replace(/\s+/g, '-')}">${tag}</label>
+                        </div>
+                    `).join('')}
+                </div>
+            </div>
+
+            <div class="form-group">
+                <label class="form-label">Time (optional - defaults to now)</label>
+                <input type="datetime-local" class="form-input" name="timestamp" value="${formattedNow}">
+            </div>
+
+            <div class="form-group">
+                <label class="form-label">Notes (optional)</label>
+                <textarea class="form-textarea" name="notes" placeholder="Any additional observations"></textarea>
+            </div>
+
+            <button type="submit" class="btn btn-primary btn-block">Log Meal</button>
+        </form>
+    `;
+
+    openModal('Log Meal', content);
+}
+
+// Submit meal
+async function submitMeal(event) {
+    event.preventDefault();
+    const form = event.target;
+    const formData = new FormData(form);
+
+    // Get selected tags
+    const tags = [];
+    form.querySelectorAll('input[name="tags"]:checked').forEach(checkbox => {
+        tags.push(checkbox.value);
+    });
+
+    const timestamp = parseDateTimeInput(formData.get('timestamp'));
+
+    const data = {
+        date: new Date(timestamp).toISOString().split('T')[0],
+        timestamp: timestamp,
+        meal_type: formData.get('meal_type'),
+        description: formData.get('description'),
+        tags: tags,
+        notes: formData.get('notes') || null
+    };
+
+    try {
+        await apiRequest('/api/meals', 'POST', data);
+        showToast('Meal logged!');
+        closeModal();
+        loadMeals();
+    } catch (error) {
+        console.error('Error logging meal:', error);
+    }
+}
+
+// Delete meal
+async function deleteMeal(id) {
+    if (!confirmDelete('Delete this meal entry?')) return;
+
+    try {
+        await apiRequest(`/api/meals/${id}`, 'DELETE');
+        showToast('Meal deleted');
+        loadMeals();
+    } catch (error) {
+        console.error('Error deleting meal:', error);
+    }
+}
+
+// Initialize
+document.addEventListener('DOMContentLoaded', () => {
+    updateDayDisplay();
+    loadMeals();
+});
+</script>
+{% endblock %}

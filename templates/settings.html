@@ -103,7 +103,7 @@ async function loadStats() {
             <div style="display: grid; gap: 1rem;">
                 <div class="stat-card">
                     <div style="font-size: 0.875rem; color: var(--text-muted); margin-bottom: 0.5rem;">Total Entries</div>
-                    <div style="display: flex; justify-content: space-around; text-align: center;">
+                    <div style="display: grid; grid-template-columns: repeat(2, 1fr); gap: 1rem; text-align: center;">
                         <div>
                             <div style="font-size: 1.5rem; font-weight: 700; color: var(--accent);">${stats.total_entries.hunger}</div>
                             <div style="font-size: 0.75rem; color: var(--text-muted);">Hunger</div>
@@ -111,6 +111,10 @@ async function loadStats() {
                         <div>
                             <div style="font-size: 1.5rem; font-weight: 700; color: var(--accent);">${stats.total_entries.ratings}</div>
                             <div style="font-size: 0.75rem; color: var(--text-muted);">Ratings</div>
+                        </div>
+                        <div>
+                            <div style="font-size: 1.5rem; font-weight: 700; color: var(--accent);">${stats.total_entries.meals}</div>
+                            <div style="font-size: 0.75rem; color: var(--text-muted);">Meals</div>
                         </div>
                         <div>
                             <div style="font-size: 1.5rem; font-weight: 700; color: var(--accent);">${stats.total_entries.gi_events}</div>
